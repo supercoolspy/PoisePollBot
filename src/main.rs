@@ -1,7 +1,10 @@
 use anyhow::Context as _;
 use once_cell::sync::Lazy;
-use poise::{BoxFuture, Event, FrameworkContext, serenity_prelude as serenity};
-use poise::serenity_prelude::{ButtonStyle, CacheHttp, Color, CreateActionRow, Http, InteractionResponseType, InteractionType, MessageComponentInteraction};
+use poise::serenity_prelude::{
+    ButtonStyle, CacheHttp, Color, CreateActionRow, Http, InteractionResponseType, InteractionType,
+    MessageComponentInteraction,
+};
+use poise::{serenity_prelude as serenity, BoxFuture, Event, FrameworkContext};
 use serde::{Deserialize, Serialize};
 use shuttle_persist::PersistInstance;
 use shuttle_poise::ShuttlePoise;
@@ -12,11 +15,19 @@ static POLL_BUTTONS: Lazy<CreateActionRow> = Lazy::new(|| {
     let mut row = CreateActionRow::default();
 
     row.create_button(|b| {
-        b.custom_id("poll_yes").label("Yes!").style(ButtonStyle::Success)
-    }).create_button(|b| {
-        b.custom_id("poll_no").label("No!").style(ButtonStyle::Danger)
-    }).create_button(|b| {
-        b.custom_id("poll_view").label("View Results").style(ButtonStyle::Primary)
+        b.custom_id("poll_yes")
+            .label("Yes!")
+            .style(ButtonStyle::Success)
+    })
+    .create_button(|b| {
+        b.custom_id("poll_no")
+            .label("No!")
+            .style(ButtonStyle::Danger)
+    })
+    .create_button(|b| {
+        b.custom_id("poll_view")
+            .label("View Results")
+            .style(ButtonStyle::Primary)
     });
 
     row
@@ -24,7 +35,7 @@ static POLL_BUTTONS: Lazy<CreateActionRow> = Lazy::new(|| {
 
 #[derive(Clone)]
 struct Data {
-    persist: PersistInstance
+    persist: PersistInstance,
 } // User data, which is stored and accessible in all command invocations
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -34,7 +45,7 @@ struct Poll {
     reason_to_vote_yes: String,
     reason_to_vote_no: String,
     yes_votes: Vec<PollVote>,
-    no_votes: Vec<PollVote>
+    no_votes: Vec<PollVote>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -51,34 +62,35 @@ async fn poll(
     title: String,
     description: String,
     reason_to_vote_yes: String,
-    reason_to_vote_no: String
+    reason_to_vote_no: String,
 ) -> Result<(), Error> {
     let persist = ctx.data().clone().persist;
 
-    let reply = ctx.send(|r| {
-        r
-            .embed(|e| {
-                e
-                    .title(title.clone())
+    let reply = ctx
+        .send(|r| {
+            r.embed(|e| {
+                e.title(title.clone())
                     .description(description.clone())
                     .color(Color::from_rgb(0, 255, 0))
                     .field("Yes", reason_to_vote_yes.clone(), true)
                     .field("No", reason_to_vote_no.clone(), true)
             })
-            .components(|c| {
-                c.add_action_row(POLL_BUTTONS.clone())
-            })
-    }).await?;
+            .components(|c| c.add_action_row(POLL_BUTTONS.clone()))
+        })
+        .await?;
 
     let message = reply.message().await?;
-    persist.save(&message.id.to_string(), Poll {
-        title,
-        description,
-        reason_to_vote_yes,
-        reason_to_vote_no,
-        yes_votes: Vec::new(),
-        no_votes: Vec::new()
-    })?;
+    persist.save(
+        &message.id.to_string(),
+        Poll {
+            title,
+            description,
+            reason_to_vote_yes,
+            reason_to_vote_no,
+            yes_votes: Vec::new(),
+            no_votes: Vec::new(),
+        },
+    )?;
     Ok(())
 }
 
@@ -86,15 +98,14 @@ async fn poll(
 async fn eph_text(
     interaction: &MessageComponentInteraction,
     text: impl Into<String>,
-    http: &Http
+    http: &Http,
 ) -> Result<(), Error> {
-    interaction.create_interaction_response(http, |r| {
-        r.kind(InteractionResponseType::ChannelMessageWithSource)
-            .interaction_response_data(|d| {
-                d.ephemeral(true)
-                    .content(text.into())
-            })
-    }).await?;
+    interaction
+        .create_interaction_response(http, |r| {
+            r.kind(InteractionResponseType::ChannelMessageWithSource)
+                .interaction_response_data(|d| d.ephemeral(true).content(text.into()))
+        })
+        .await?;
     Ok(())
 }
 
@@ -104,14 +115,18 @@ fn get_voted(
     yes_votes: &[PollVote],
     no_votes: &[PollVote],
 ) -> bool {
-    yes_votes.iter().any(|v| component_interaction.user.id.0 == v.0) ||
-        no_votes.iter().any(|v| component_interaction.user.id.0 == v.0)
+    yes_votes
+        .iter()
+        .any(|v| component_interaction.user.id.0 == v.0)
+        || no_votes
+            .iter()
+            .any(|v| component_interaction.user.id.0 == v.0)
 }
 
 #[shuttle_runtime::main]
 async fn poise(
     #[shuttle_secrets::Secrets] secret_store: SecretStore,
-    #[shuttle_persist::Persist] persist: PersistInstance
+    #[shuttle_persist::Persist] persist: PersistInstance,
 ) -> ShuttlePoise<Data, Error> {
     // Get the discord token set in `Secrets.toml`
     let discord_token = secret_store
@@ -121,11 +136,15 @@ async fn poise(
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
             commands: vec![poll()],
-            event_handler: |ctx: &serenity::Context, event, fw_ctx: FrameworkContext<Data, Error>, _| -> BoxFuture<'_, Result<(), Error>> {
+            event_handler: |ctx: &serenity::Context,
+                            event,
+                            fw_ctx: FrameworkContext<Data, Error>,
+                            _|
+             -> BoxFuture<'_, Result<(), Error>> {
                 Box::pin(async move {
                     if let Event::InteractionCreate { interaction } = event {
                         if interaction.kind() != InteractionType::MessageComponent {
-                            return Ok(())
+                            return Ok(());
                         }
 
                         let component_interaction = interaction.as_message_component().unwrap();
@@ -139,26 +158,40 @@ async fn poise(
                         }
 
                         if get_voted(component_interaction, &poll.yes_votes, &poll.no_votes) {
-                            return eph_text(component_interaction, "You already voted!", ctx.http()).await
+                            return eph_text(
+                                component_interaction,
+                                "You already voted!",
+                                ctx.http(),
+                            )
+                            .await;
                         }
 
                         match component_data.custom_id.as_str() {
                             "poll_yes" => {
-                                eph_text(component_interaction, "You voted yes!", ctx.http()).await?;
+                                eph_text(component_interaction, "You voted yes!", ctx.http())
+                                    .await?;
 
-                                poll.yes_votes.append(&mut vec![PollVote(component_interaction.user.id.0)])
-                            },
+                                poll.yes_votes
+                                    .append(&mut vec![PollVote(component_interaction.user.id.0)])
+                            }
                             "poll_no" => {
-                                eph_text(component_interaction, "You voted no!", ctx.http()).await?;
+                                eph_text(component_interaction, "You voted no!", ctx.http())
+                                    .await?;
 
-                                poll.no_votes.append(&mut vec![PollVote(component_interaction.user.id.0)])
-                            },
+                                poll.no_votes
+                                    .append(&mut vec![PollVote(component_interaction.user.id.0)])
+                            }
                             "poll_view" => {
                                 return eph_text(
                                     component_interaction,
-                                    format!("Yes: {} No: {}", poll.yes_votes.len(), poll.no_votes.len()),
-                                    ctx.http()
-                                ).await;
+                                    format!(
+                                        "Yes: {} No: {}",
+                                        poll.yes_votes.len(),
+                                        poll.no_votes.len()
+                                    ),
+                                    ctx.http(),
+                                )
+                                .await;
                             }
                             _ => {}
                         }
@@ -175,9 +208,7 @@ async fn poise(
         .setup(|ctx, _ready, framework| {
             Box::pin(async move {
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-                Ok(Data {
-                    persist
-                })
+                Ok(Data { persist })
             })
         })
         .build()
